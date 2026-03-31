@@ -62,15 +62,51 @@ Callers may log `r` as a structured event for external aggregation.
 
 ---
 
-## logLevel (Reserved)
+## Structured Log Events (v0.1.1+)
 
-`DriverConfig.logLevel` is reserved for future structured internal logging:
+`DriverConfig.logLevel` activates structured JSON-Lines output to `stderr`.
+Default is `'silent'` — no output unless explicitly set.
 
+```typescript
+const driver = new GeminiWebDriver({
+  providerUrl: '...',
+  logLevel: 'info',  // or 'debug' | 'warn' | 'error'
+});
 ```
-'silent' | 'error' | 'warn' | 'info' | 'debug'
-```
 
-No log output is emitted in v0.1.0-driver-core. Field is accepted but ignored.
+### Event catalogue
+
+| Event | Level | Key fields |
+|---|---|---|
+| `driver.init.started` | info | sessionId |
+| `driver.init.succeeded` | info | sessionId, durationMs |
+| `driver.init.failed` | error | sessionId, durationMs, errorCode, recoverable |
+| `driver.generate.started` | info | sessionId, requestId? |
+| `driver.generate.succeeded` | info | sessionId, durationMs, requestId? |
+| `driver.generate.failed` | error | sessionId, durationMs, errorCode, recoverable, requestId? |
+| `driver.capture.timeout` | warn | sessionId, durationMs, errorCode, recoverable |
+| `driver.health.checked` | debug | sessionId |
+| `driver.recover.started` | info | sessionId |
+| `driver.recover.succeeded` | info | sessionId, action |
+| `driver.recover.failed` | info | sessionId, action |
+| `driver.shutdown.started` | info | sessionId |
+| `driver.shutdown.succeeded` | info | sessionId |
+| `driver.shutdown.failed` | error | sessionId, errorCode? |
+| `driver.auth.required` | warn | sessionId |
+| `driver.selector.missing` | warn | sessionId, selectorName |
+
+All records include `timestamp` (ISO 8601) and `level` fields.
+
+### What is never logged
+
+- Full prompt text or model output
+- Cookies, auth tokens, or session credentials
+- Local file paths (including `profileDir`)
+- Any `GenerateInput.metadata` field except `requestId` (when string-typed)
+
+### Level hierarchy
+
+`silent` (default) < `error` < `warn` < `info` < `debug`
 
 ---
 

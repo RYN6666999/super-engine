@@ -9,13 +9,14 @@ import type {
   RecoveryResult,
   WebLLMDriver,
 } from '../types/index';
-import { AuthenticationRequiredError, DriverNotInitializedError } from '../errors/index';
+import { AuthenticationRequiredError, DriverError, DriverNotInitializedError, TimeoutError } from '../errors/index';
 import { BrowserSession } from '../modules/BrowserSession';
 import { PageStateInspector } from '../modules/PageStateInspector';
 import { PromptSubmitter } from '../modules/PromptSubmitter';
 import { OutputCapture } from '../modules/OutputCapture';
 import { RecoveryManager } from '../modules/RecoveryManager';
 import { GeminiSelectors } from '../providers/gemini/selectors';
+import { DriverLogger } from '../utils/logger';
 
 /** Optional dependency injection — used in unit tests to inject mocked modules. */
 export interface GeminiWebDriverDeps {
@@ -24,6 +25,8 @@ export interface GeminiWebDriverDeps {
   submitter: PromptSubmitter;
   capture: OutputCapture;
   recovery: RecoveryManager;
+  /** Optional logger override — inject in tests to capture log events. */
+  logger?: DriverLogger;
 }
 
 /**
@@ -41,6 +44,7 @@ export class GeminiWebDriver implements WebLLMDriver {
   private readonly submitter: PromptSubmitter;
   private readonly capture: OutputCapture;
   private readonly recovery: RecoveryManager;
+  private readonly logger: DriverLogger;
 
   constructor(private readonly config: DriverConfig, deps?: GeminiWebDriverDeps) {
     const sessionConfig: BrowserSessionConfig = {
@@ -60,39 +64,78 @@ export class GeminiWebDriver implements WebLLMDriver {
       this.submitter = deps.submitter;
       this.capture = deps.capture;
       this.recovery = deps.recovery;
+      this.logger = deps.logger ?? new DriverLogger(config.logLevel ?? 'silent');
     } else {
       this.session = new BrowserSession(sessionConfig);
       this.inspector = new PageStateInspector(GeminiSelectors);
       this.submitter = new PromptSubmitter(GeminiSelectors);
       this.capture = new OutputCapture(GeminiSelectors, captureConfig);
       this.recovery = new RecoveryManager(this.session, this.inspector, sessionConfig);
+      this.logger = new DriverLogger(config.logLevel ?? 'silent');
     }
   }
 
   async init(): Promise<void> {
-    await this.session.launch();
-    const page = await this.session.getPage();
-    await page.goto(this.config.providerUrl);
-    const mode = await this.inspector.detectMode(page);
-    if (mode === 'unauthenticated' || mode === 'challenge') {
-      throw new AuthenticationRequiredError(
-        'Provider page requires authentication — launch with a valid browser profile',
-      );
+    const startMs = Date.now();
+    this.logger.emit('info', { event: 'driver.init.started', sessionId: this.session.id });
+    try {
+      await this.session.launch();
+      const page = await this.session.getPage();
+      await page.goto(this.config.providerUrl);
+      const mode = await this.inspector.detectMode(page);
+      if (mode === 'unauthenticated' || mode === 'challenge') {
+        this.logger.emit('warn', { event: 'driver.auth.required', sessionId: this.session.id });
+        throw new AuthenticationRequiredError(
+          'Provider page requires authentication — launch with a valid browser profile',
+        );
+      }
+      this._initialized = true;
+      this._lastError = undefined;
+      this.logger.emit('info', {
+        event: 'driver.init.succeeded',
+        sessionId: this.session.id,
+        durationMs: Date.now() - startMs,
+      });
+    } catch (e: unknown) {
+      if (!(e instanceof AuthenticationRequiredError)) {
+        const isDriverError = e instanceof DriverError;
+        this.logger.emit('error', {
+          event: 'driver.init.failed',
+          sessionId: this.session.id,
+          durationMs: Date.now() - startMs,
+          ...(isDriverError ? { errorCode: e.code, recoverable: e.recoverable } : {}),
+        });
+      }
+      throw e;
     }
-    this._initialized = true;
-    this._lastError = undefined;
   }
 
   async generate(input: GenerateInput): Promise<GenerateOutput> {
     if (!this._initialized) {
       throw new DriverNotInitializedError('Call init() before generate()');
     }
+    const startMs = Date.now();
+    const requestId =
+      typeof input.metadata?.['requestId'] === 'string'
+        ? input.metadata['requestId']
+        : undefined;
+    this.logger.emit('info', {
+      event: 'driver.generate.started',
+      sessionId: this.session.id,
+      ...(requestId !== undefined ? { requestId } : {}),
+    });
     this._mode = 'generating';
     try {
       const page = await this.session.getPage();
       await this.submitter.submit(page, input.prompt, input.systemPrompt);
       const result = await this.capture.capture(page, input.timeoutMs);
       this._mode = 'idle';
+      this.logger.emit('info', {
+        event: 'driver.generate.succeeded',
+        sessionId: this.session.id,
+        durationMs: Date.now() - startMs,
+        ...(requestId !== undefined ? { requestId } : {}),
+      });
       return {
         text: result.text,
         startedAt: result.startedAt,
@@ -104,6 +147,25 @@ export class GeminiWebDriver implements WebLLMDriver {
     } catch (e: unknown) {
       this._mode = 'degraded';
       this._lastError = e instanceof Error ? e.message : String(e);
+      if (e instanceof TimeoutError) {
+        this.logger.emit('warn', {
+          event: 'driver.capture.timeout',
+          sessionId: this.session.id,
+          durationMs: e.elapsedMs,
+          errorCode: e.code,
+          recoverable: e.recoverable,
+          ...(requestId !== undefined ? { requestId } : {}),
+        });
+      } else {
+        const isDriverError = e instanceof DriverError;
+        this.logger.emit('error', {
+          event: 'driver.generate.failed',
+          sessionId: this.session.id,
+          durationMs: Date.now() - startMs,
+          ...(isDriverError ? { errorCode: e.code, recoverable: e.recoverable } : {}),
+          ...(requestId !== undefined ? { requestId } : {}),
+        });
+      }
       throw e;
     }
   }
@@ -127,7 +189,7 @@ export class GeminiWebDriver implements WebLLMDriver {
       }
 
       const ok = this._initialized && browserRunning && pageReady && authenticated;
-      return {
+      const result: DriverHealth = {
         ok,
         initialized: this._initialized,
         browserRunning,
@@ -137,8 +199,11 @@ export class GeminiWebDriver implements WebLLMDriver {
         mode: this._mode,
         ...(this._lastError !== undefined ? { lastError: this._lastError } : {}),
       };
+      this.logger.emit('debug', { event: 'driver.health.checked', sessionId: this.session.id });
+      return result;
     } catch {
       // health() must never throw
+      this.logger.emit('debug', { event: 'driver.health.checked', sessionId: this.session.id });
       return {
         ok: false,
         initialized: this._initialized,
@@ -152,15 +217,41 @@ export class GeminiWebDriver implements WebLLMDriver {
   }
 
   async recover(reason?: string): Promise<RecoveryResult> {
+    this.logger.emit('info', { event: 'driver.recover.started', sessionId: this.session.id });
     const h = await this.health();
-    return this.recovery.recover(h, reason);
+    const result = await this.recovery.recover(h, reason);
+    if (result.ok) {
+      this.logger.emit('info', {
+        event: 'driver.recover.succeeded',
+        sessionId: this.session.id,
+        action: result.action,
+      });
+    } else {
+      this.logger.emit('info', {
+        event: 'driver.recover.failed',
+        sessionId: this.session.id,
+        action: result.action,
+      });
+    }
+    return result;
   }
 
   async shutdown(): Promise<void> {
+    this.logger.emit('info', { event: 'driver.shutdown.started', sessionId: this.session.id });
     this._mode = 'shutdown';
-    if (this._initialized) {
-      await this.session.close().catch(() => { /* best-effort */ });
-      this._initialized = false;
+    try {
+      if (this._initialized) {
+        await this.session.close().catch(() => { /* best-effort */ });
+        this._initialized = false;
+      }
+      this.logger.emit('info', { event: 'driver.shutdown.succeeded', sessionId: this.session.id });
+    } catch (e: unknown) {
+      this.logger.emit('error', {
+        event: 'driver.shutdown.failed',
+        sessionId: this.session.id,
+        ...(e instanceof DriverError ? { errorCode: e.code } : {}),
+      });
+      throw e;
     }
   }
 }

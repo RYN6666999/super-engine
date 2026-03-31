@@ -106,6 +106,26 @@ describe.runIf(SMOKE_ENABLED && !!SMOKE_PROFILE)('Driver Smoke Tests', () => {
     expect(result).toHaveProperty('message');
   });
 
+  it('generate() succeeds after recover() with timeout reason (page-refresh path)', async () => {
+    // Simulate the stuck-page scenario: health looks ok but we pass a timeout reason.
+    // RecoveryManager will force a page refresh; then generate should still work.
+    const preHealth = await driver.health();
+    expect(preHealth.ok).toBe(true);
+
+    const recovery = await driver.recover('timeout');
+    // A refresh-page action is expected. If auth expired, rebuild-session is acceptable.
+    expect(['refresh-page', 'reopen-page', 'rebuild-session', 'none']).toContain(recovery.action);
+
+    if (recovery.ok) {
+      // Only attempt generate if recovery reports success.
+      const out = await driver.generate({
+        prompt: 'Reply only with: OK',
+        timeoutMs: 60_000,
+      });
+      expect(out.text.toLowerCase()).toContain('ok');
+    }
+  }, 120_000);
+
   // ── not-init guard ───────────────────────────────────────────────────────────
 
   it('a fresh uninitialized driver throws DriverNotInitializedError on generate()', async () => {

@@ -3,12 +3,25 @@ import type { BrowserSessionConfig, DriverHealth, RecoveryResult } from '../type
 import type { BrowserSession } from './BrowserSession';
 import type { PageStateInspector } from './PageStateInspector';
 
+/** Keywords in a recovery reason that signal a stuck/stale page requiring force-refresh. */
+const FORCE_REFRESH_SIGNALS = ['timeout', 'capture-failed', 'stuck', 'stale'] as const;
+
+function reasonRequiresForceRefresh(reason: string | undefined): boolean {
+  if (!reason) return false;
+  const lower = reason.toLowerCase();
+  return FORCE_REFRESH_SIGNALS.some((signal) => lower.includes(signal));
+}
+
 /**
  * Decides and executes recovery actions based on a DriverHealth snapshot.
  * Never throws — always returns RecoveryResult.
  *
  * Recovery escalation order (per spec decision matrix):
  *   none → refresh-page → reopen-page → restart-browser → rebuild-session
+ *
+ * Reason-aware extension (v0.1.1):
+ *   When health.ok = true but reason indicates timeout/stuck/stale, a forced
+ *   page refresh is executed to clear potentially stuck generation state.
  */
 export class RecoveryManager {
   constructor(
@@ -20,11 +33,16 @@ export class RecoveryManager {
   /**
    * Executes the appropriate recovery action based on the provided health snapshot.
    * @param health - Current DriverHealth at time of recovery request.
-   * @param _reason - Optional human-readable reason for audit logging.
+   * @param reason - Optional human-readable reason; 'timeout'/'capture-failed'/'stuck'/'stale'
+   *                 triggers a force-refresh even when health.ok is true.
    * @returns RecoveryResult — never throws.
    */
-  async recover(health: DriverHealth, _reason?: string): Promise<RecoveryResult> {
+  async recover(health: DriverHealth, reason?: string): Promise<RecoveryResult> {
     try {
+      // Health ok, but reason signals a stuck/stale page — force a refresh to clear state.
+      if (health.ok && reasonRequiresForceRefresh(reason)) {
+        return await this._refreshPage();
+      }
       if (health.ok) {
         return { ok: true, action: 'none', message: 'Health is ok — no recovery needed.' };
       }

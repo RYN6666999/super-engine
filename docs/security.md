@@ -1,4 +1,4 @@
-# Security Spec — weblm-driver v0.1.0-driver-core
+# Security Spec — weblm-driver v0.1.1-driver-hardening
 
 ## Threat Model Boundary
 
@@ -63,6 +63,25 @@ The driver operates within a **single-host, trusted-caller** model. It is not a 
 
 - Some error constructors accept a `context?: Record<string, unknown>` parameter for caller-supplied diagnostic data
 - The driver's own error construction does **not** populate `context` with DOM content, credentials, or session data
+
+---
+
+## Structured Logging (v0.1.1)
+
+`DriverLogger` emits JSON-Lines records to `stderr` when `logLevel` is set.
+
+**Fields never logged:**
+- Full prompt text or model output
+- Session cookies or auth tokens
+- `profileDir` or any file paths
+- Any `GenerateInput.metadata` field except `requestId` (if string-typed)
+
+**Fields logged (when present):**
+- `timestamp`, `level`, `event`, `sessionId`, `requestId`, `durationMs`,
+  `errorCode`, `recoverable`, `action`, `selectorName`
+
+Log output goes to `stderr` only (via `console.error`). No file logging, no
+network transmission, no external sink.
 
 ---
 

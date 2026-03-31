@@ -157,6 +157,55 @@ describe('RecoveryManager', () => {
     });
   });
 
+  // ── Reason-aware recovery (v0.1.1) ──────────────────────────────────────────
+
+  describe('recover() — reason-aware (v0.1.1)', () => {
+    it('forces refresh-page when health.ok=true and reason contains "timeout"', async () => {
+      const health = makeHealth({ ok: true });
+      const result = await manager.recover(health, 'generate timeout after 30s');
+      expect(result.action).toBe('refresh-page');
+    });
+
+    it('forces refresh-page when health.ok=true and reason contains "capture-failed"', async () => {
+      const health = makeHealth({ ok: true });
+      const result = await manager.recover(health, 'capture-failed: output empty');
+      expect(result.action).toBe('refresh-page');
+    });
+
+    it('forces refresh-page when health.ok=true and reason contains "stuck"', async () => {
+      const health = makeHealth({ ok: true });
+      const result = await manager.recover(health, 'stuck state detected');
+      expect(result.action).toBe('refresh-page');
+    });
+
+    it('forces refresh-page when health.ok=true and reason contains "stale"', async () => {
+      const health = makeHealth({ ok: true });
+      const result = await manager.recover(health, 'stale page after navigation');
+      expect(result.action).toBe('refresh-page');
+    });
+
+    it('returns action "none" when health.ok=true and reason has no force-refresh signal', async () => {
+      const health = makeHealth({ ok: true });
+      const result = await manager.recover(health, 'smoke-test-probe');
+      expect(result.action).toBe('none');
+      expect(result.ok).toBe(true);
+    });
+
+    it('returns action "none" when health.ok=true and no reason provided', async () => {
+      const health = makeHealth({ ok: true });
+      const result = await manager.recover(health);
+      expect(result.action).toBe('none');
+      expect(result.ok).toBe(true);
+    });
+
+    it('reason does NOT override browser-down detection (browserRunning=false takes priority)', async () => {
+      const health = makeHealth({ ok: false, browserRunning: false, pageReady: false, authenticated: false });
+      const result = await manager.recover(health, 'timeout');
+      // browserRunning=false → restart-browser, even if reason says timeout
+      expect(result.action).toBe('restart-browser');
+    });
+  });
+
   // ── Domain isolation ─────────────────────────────────────────────────────────
 
   describe('domain isolation', () => {

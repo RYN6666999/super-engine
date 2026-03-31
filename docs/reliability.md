@@ -1,4 +1,4 @@
-# Reliability Spec — weblm-driver v0.1.0-driver-core
+# Reliability Spec — weblm-driver v0.1.1-driver-hardening
 
 ## Goals
 
@@ -29,11 +29,18 @@ ok = initialized ∧ browserRunning ∧ pageReady ∧ authenticated
 `recover()` **never throws**. It maps health state to action:
 
 ```
-browserRunning = false  →  restart-browser
-authenticated = false   →  reopen-page → (if still no auth) rebuild-session
-pageReady = false       →  refresh-page
-everything ok           →  none
+health.ok = true AND reason = 'timeout'/'capture-failed'/'stuck'/'stale'
+                                        →  refresh-page (forced — v0.1.1)
+health.ok = true AND no problematic reason
+                                        →  none
+browserRunning = false                  →  restart-browser
+authenticated = false                   →  reopen-page → (if still no auth) rebuild-session
+pageReady = false                       →  refresh-page
 ```
+
+The `reason` parameter to `recover()` is now load-bearing (v0.1.1): if health appears OK
+but the reason string contains `timeout`, `capture-failed`, `stuck`, or `stale`, a forced
+`refresh-page` action clears potentially stuck generation state that `health()` cannot detect.
 
 Recovery actions are **ordered by severity** (ascending). Each action is self-contained and does not assume prior actions succeeded.
 

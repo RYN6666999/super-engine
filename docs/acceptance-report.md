@@ -1,7 +1,93 @@
+# Final Acceptance Report — weblm-driver v0.1.1-driver-hardening
+
+**Date:** 2026-03-31
+**Phase:** v0.1.1-driver-hardening — Runtime robustness, observability, selector resilience, recovery hardening
+**Prepared by:** automated hardening agent
+
+---
+
+## v0.1.1-driver-hardening Acceptance
+
+### 1. Test Summary
+
+| Suite | Tests | Pass | Fail | Skip |
+|---|---|---|---|---|
+| Unit — `PageStateInspector` | 14 | 14 | 0 | 0 |
+| Unit — `RecoveryManager` | 19 | 19 | 0 | 0 |
+| Unit — `OutputCapture` | 15 | 15 | 0 | 0 |
+| Unit — `GeminiWebDriver` | 30 | 30 | 0 | 0 |
+| Unit — `DriverLogger` | 12 | 12 | 0 | 0 |
+| **Total unit** | **90** | **90** | **0** | 0 |
+| Smoke (gated) | 10 | — | — | 10 (gate not triggered) |
+
+**Result: PASS** — 90 unit tests pass. All 26 new hardening tests green. Zero failures.
+
+### 2. Lint Summary
+
+**Tool:** ESLint 8.57.1 + `@typescript-eslint` 7.8.0
+**Result: CLEAN** — zero errors, zero warnings.
+(TypeScript version warning from `@typescript-eslint` plugin is advisory only — not an error.)
+
+### 3. Typecheck Summary
+
+**Tool:** TypeScript 5.9.3 (`tsc --noEmit`)
+**Result: CLEAN** — zero errors.
+`exactOptionalPropertyTypes: true` respected: all optional log event fields use conditional spreads.
+
+### 4. Smoke Readiness
+
+**Status: INFRASTRUCTURE READY — GATE OPERATIONAL**
+
+| Component | Status |
+|---|---|
+| Smoke test file | ✓ `tests/smoke/driver.smoke.test.ts` |
+| Environment gate | ✓ `VITEST_SMOKE=1 AND SMOKE_PROFILE_DIR` required |
+| Smoke readiness checklist | ✓ `docs/smoke-test-guide.md` |
+| Recovery smoke case | ✓ Added — page-refresh + generate after recover('timeout') |
+| Live smoke run | Not run (no configured profile in CI) |
+
+### 5. What changed in v0.1.1
+
+| Area | Change |
+|---|---|
+| Structured logging | `DriverLogger` internal utility; 15 log events; `logLevel` now active |
+| Selector fallbacks | All 7 selectors use CSS `:is()` with 2–3 candidates; zero module changes |
+| Selector audit | `selectorAudit()` internal utility for pre-release DOM verification |
+| Recovery reason | `reason` parameter now triggers force-refresh for timeout/stuck cases |
+| Smoke test | Recovery smoke case added (page-refresh path after `recover('timeout')`) |
+| Tests | +26 unit tests (DriverLogger: 12, RecoveryManager: +7, GeminiWebDriver: +7) |
+
+### 6. What was verified
+
+- All 64 v0.1.0 baseline tests remain green.
+- 26 new tests specifically cover: log level filtering, log event names, log field values, recovery reason-awareness, smoke recovery path shape.
+- Lint: zero errors.
+- Typecheck: zero errors (including `exactOptionalPropertyTypes` compliance).
+- Public API: zero changes. All 18 exports unchanged.
+
+### 7. Known risks
+
+1. **Selector drift**: CSS selectors target Gemini UI observed early 2025. Google may change the DOM. Run `selectorAudit()` on a live page before each major use.
+2. **`:is()` support**: Requires Chromium 88+ (Playwright ships this; no practical risk).
+3. **Stuck-page false positives**: The reason-aware force-refresh assumes timeout = stuck. If a caller passes 'timeout' reason when health is genuinely ok and not stuck, an unnecessary refresh occurs. This is safe (not data-losing) but adds latency.
+4. **Live smoke not run**: No configured browser profile in this environment. Smoke infrastructure is verified to gate/skip correctly. Live validation requires operator-supplied profile.
+
+### 8. Release recommendation
+
+RELEASE — v0.1.1-driver-hardening.
+
+- All unit tests green.
+- Lint and typecheck clean.
+- Public API unchanged.
+- Hardening improvements are backward-compatible.
+- No scope creep. No new product features.
+
+---
+
 # Final Acceptance Report — weblm-driver v0.1.0-driver-core
 
-**Date:** 2026-03-31  
-**Phase:** E — Stabilization, packaging, and acceptance  
+**Date:** 2026-03-31
+**Phase:** E — Stabilization, packaging, and acceptance
 **Prepared by:** automated Phase E agent
 
 ---

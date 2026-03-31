@@ -1,6 +1,6 @@
 {
   "name": "weblm-driver",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A minimal browser-in-the-loop Web LLM driver for low-cost inference.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

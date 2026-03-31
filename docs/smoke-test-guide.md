@@ -1,4 +1,4 @@
-# Smoke Test Guide — weblm-driver v0.1.0-driver-core
+# Smoke Test Guide — weblm-driver v0.1.1-driver-hardening
 
 A smoke test verifies the full driver pipeline against a **real, live browser session**. It requires a Chromium browser profile that already has an active Gemini session (you are already logged in).
 
@@ -48,8 +48,57 @@ The smoke suite tests:
 6. `recover()` returns a `RecoveryResult` without throwing
 7. An uninitialised driver throws `DriverNotInitializedError` on `generate()`
 8. `shutdown()` completes without throwing
+9. `generate()` succeeds after `recover('timeout')` — page-refresh recovery path **(new in v0.1.1)**
 
 **Smoke tests are excluded from `npm test` (unit tests only).** They run only when `VITEST_SMOKE=1` and `SMOKE_PROFILE_DIR` are both set.
+
+---
+
+## Smoke Readiness Checklist (v0.1.1)
+
+Before running smoke tests, verify each item:
+
+### Browser profile requirements
+
+- [ ] Chromium profile directory exists and is readable: `ls -la $SMOKE_PROFILE_DIR`
+- [ ] Profile was created with Playwright chromium (not plain Chrome): `npx playwright open ...`
+- [ ] Session cookies are not expired: open the profile in a visible browser and confirm login
+
+### Logged-in session assumption
+
+- [ ] You are logged into `https://gemini.google.com/app` in the profile
+- [ ] The Gemini app interface is visible (not a login wall or CAPTCHA)
+- [ ] No active rate-limiting or quota exhaustion on the account
+
+### Selector health (pre-release only)
+
+- [ ] Run `selectorAudit(page, GeminiSelectors)` on a live page to verify all selectors resolve
+- [ ] Confirm `inputBox`, `outputContainer`, and `loginIndicator` show `found: true, visible: true`
+- [ ] Review any `found: false` results against the current live DOM before releasing
+
+### Environment variables
+
+- [ ] `VITEST_SMOKE=1` — must be set or all smoke tests will skip
+- [ ] `SMOKE_PROFILE_DIR` — must point to a valid profile directory
+- [ ] `SMOKE_PROVIDER_URL` — optional (defaults to `https://gemini.google.com/app`)
+- [ ] `SMOKE_HEADLESS` — set to `false` for debugging with visible browser
+
+### Acceptable failure modes
+
+| Failure | Classification | Operator action |
+|---|---|---|
+| Auth expired mid-run | Recoverable (external) | Re-login and re-run |
+| Rate limit from provider | Recoverable (transient) | Wait and re-run |
+| Selector not found (`PageNotReadyError`) | Potentially non-recoverable | Run selector audit |
+| Browser crash | Recoverable (driver restart) | Re-run |
+| `generate()` timeout | Recoverable (retry) | Re-run with larger timeout |
+| `recover()` returns `rebuild-session` | Non-recoverable (session) | Re-login manually |
+| CAPTCHA / challenge presented | Non-recoverable (session) | Solve manually in visible browser |
+
+### Recoverable vs non-recoverable
+
+- **Recoverable**: `result.ok = true` or `result.action` in `['refresh-page', 'reopen-page', 'restart-browser']`
+- **Non-recoverable (operator intervention)**: `result.action = 'rebuild-session'` — session expired, re-login required
 
 ---
 
