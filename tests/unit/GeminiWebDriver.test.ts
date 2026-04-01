@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GeminiWebDriver } from '../../src/driver/GeminiWebDriver';
 import type { GeminiWebDriverDeps } from '../../src/driver/GeminiWebDriver';
-import { DriverNotInitializedError } from '../../src/errors/index';
+import { ConcurrentGenerationError, DriverNotInitializedError, OutputCaptureError } from '../../src/errors/index';
 import type { DriverConfig, GenerateInput } from '../../src/types/index';
 import type { BrowserSession } from '../../src/modules/BrowserSession';
 import type { PageStateInspector } from '../../src/modules/PageStateInspector';
@@ -227,6 +227,58 @@ describe('GeminiWebDriver', () => {
     });
   });
 
+  // ── health() — lastErrorCode ──────────────────────────────────────────────────
+
+  describe('health() — lastErrorCode', () => {
+    it('lastErrorCode is absent when no error has occurred', async () => {
+      const { driver: d } = makeTestDriver();
+      await d.init();
+      const h = await d.health();
+      expect(h.lastErrorCode).toBeUndefined();
+    });
+
+    it('lastErrorCode equals the DriverError code when a typed error is the last error', async () => {
+      const { driver: d } = makeTestDriver({
+        capture: {
+          capture: vi.fn().mockRejectedValue(new OutputCaptureError('capture failed')),
+        } as unknown as OutputCapture,
+      });
+      await d.init();
+      await d.generate(simpleInput).catch(() => {});
+      const h = await d.health();
+      expect(h.lastErrorCode).toBe('OUTPUT_CAPTURE_FAILED');
+    });
+
+    it('lastErrorCode is undefined for non-DriverError generic errors (lastError is still set)', async () => {
+      const { driver: d } = makeTestDriver({
+        capture: {
+          capture: vi.fn().mockRejectedValue(new Error('network blip')),
+        } as unknown as OutputCapture,
+      });
+      await d.init();
+      await d.generate(simpleInput).catch(() => {});
+      const h = await d.health();
+      expect(h.lastErrorCode).toBeUndefined();
+      expect(h.lastError).toBe('network blip');
+    });
+
+    it('lastErrorCode is cleared to undefined after a successful init()', async () => {
+      const { driver: d } = makeTestDriver({
+        capture: {
+          capture: vi.fn().mockRejectedValue(new OutputCaptureError('fail')),
+        } as unknown as OutputCapture,
+      });
+      await d.init();
+      await d.generate(simpleInput).catch(() => {});
+      // Verify it was set
+      expect((await d.health()).lastErrorCode).toBe('OUTPUT_CAPTURE_FAILED');
+      // Re-init successfully clears it
+      await d.init();
+      const h = await d.health();
+      expect(h.lastErrorCode).toBeUndefined();
+    });
+  });
+
   // ── recover() ────────────────────────────────────────────────────────────────
 
   describe('recover()', () => {
@@ -245,6 +297,43 @@ describe('GeminiWebDriver', () => {
       if (result !== null) {
         expect(valid).toContain(result.action);
       }
+    });
+
+    it('clears lastError and lastErrorCode after a successful recover()', async () => {
+      const { driver: d } = makeTestDriver({
+        capture: {
+          capture: vi.fn().mockRejectedValue(new OutputCaptureError('capture failed')),
+        } as unknown as OutputCapture,
+        // recovery mock already returns { ok: true, action: 'none', message: 'ok' }
+      });
+      await d.init();
+      await d.generate(simpleInput).catch(() => {});
+      // Verify errors were recorded
+      const hBefore = await d.health();
+      expect(hBefore.lastErrorCode).toBe('OUTPUT_CAPTURE_FAILED');
+      expect(hBefore.lastError).toBeDefined();
+      // Successful recover() must clear them
+      await d.recover('test reason');
+      const hAfter = await d.health();
+      expect(hAfter.lastError).toBeUndefined();
+      expect(hAfter.lastErrorCode).toBeUndefined();
+    });
+
+    it('does NOT clear lastError when recover() fails (ok: false)', async () => {
+      const { driver: d } = makeTestDriver({
+        capture: {
+          capture: vi.fn().mockRejectedValue(new OutputCaptureError('capture failed')),
+        } as unknown as OutputCapture,
+        recovery: {
+          recover: vi.fn().mockResolvedValue({ ok: false, action: 'refresh-page', message: 'still broken' }),
+        } as unknown as RecoveryManager,
+      });
+      await d.init();
+      await d.generate(simpleInput).catch(() => {});
+      await d.recover('test reason');
+      const h = await d.health();
+      expect(h.lastErrorCode).toBe('OUTPUT_CAPTURE_FAILED');
+      expect(h.lastError).toBeDefined();
     });
   });
 
@@ -342,6 +431,247 @@ describe('GeminiWebDriver', () => {
       // We can only verify the public contract is identical (no throw, no output side-effects).
       const freshDriver = new GeminiWebDriver({ providerUrl: 'https://gemini.google.com/app' });
       await expect(freshDriver.health()).resolves.toBeDefined();
+    });
+  });
+
+  // ── outputKind ───────────────────────────────────────────────────────────────
+
+  describe('generate() — outputKind', () => {
+    it('GenerateOutput includes outputKind field', async () => {
+      const { driver: d } = makeTestDriver();
+      await d.init();
+      const result = await d.generate(simpleInput);
+      expect(result).toHaveProperty('outputKind');
+    });
+
+    it('outputKind is "normal" for a regular response', async () => {
+      const { driver: d } = makeTestDriver();
+      await d.init();
+      const result = await d.generate(simpleInput);
+      // Default mock returns 'Generated response text' — no error pattern → normal
+      expect(result.outputKind).toBe('normal');
+    });
+
+    it('outputKind is "provider-error" when capture returns a known error string', async () => {
+      const { driver: d } = makeTestDriver({
+        capture: {
+          capture: vi.fn().mockResolvedValue({
+            text: 'Something went wrong',
+            startedAt: new Date(),
+            completedAt: new Date(),
+          }),
+        } as unknown as OutputCapture,
+      });
+      await d.init();
+      const result = await d.generate(simpleInput);
+      expect(result.outputKind).toBe('provider-error');
+    });
+
+    it('outputKind is "unknown" when capture returns empty text', async () => {
+      const { driver: d } = makeTestDriver({
+        capture: {
+          capture: vi.fn().mockResolvedValue({
+            text: '',
+            startedAt: new Date(),
+            completedAt: new Date(),
+          }),
+        } as unknown as OutputCapture,
+      });
+      await d.init();
+      const result = await d.generate(simpleInput);
+      expect(result.outputKind).toBe('unknown');
+    });
+
+    it('log event driver.generate.succeeded includes outputKind', async () => {
+      const { driver: d, emitted } = makeTestDriver();
+      await d.init();
+      await d.generate(simpleInput);
+      const succeededEvent = emitted.find((r) => r.event === 'driver.generate.succeeded');
+      expect(succeededEvent).toBeDefined();
+      expect(succeededEvent?.outputKind).toBeDefined();
+    });
+
+    it('log event driver.generate.succeeded includes matchedPattern when outputKind is provider-error', async () => {
+      const { driver: d, emitted } = makeTestDriver({
+        capture: {
+          capture: vi.fn().mockResolvedValue({
+            text: 'Something went wrong',
+            startedAt: new Date(),
+            completedAt: new Date(),
+          }),
+        } as unknown as OutputCapture,
+      });
+      await d.init();
+      const result = await d.generate(simpleInput);
+      expect(result.outputKind).toBe('provider-error');
+      const succeededEvent = emitted.find((r) => r.event === 'driver.generate.succeeded');
+      expect(succeededEvent?.matchedPattern).toBe('generic-error');
+    });
+
+    it('log event driver.generate.succeeded does NOT include matchedPattern when outputKind is normal', async () => {
+      const { driver: d, emitted } = makeTestDriver();
+      await d.init();
+      await d.generate(simpleInput);
+      const succeededEvent = emitted.find((r) => r.event === 'driver.generate.succeeded');
+      expect(succeededEvent?.matchedPattern).toBeUndefined();
+    });
+  });
+
+  // ── newConversation ─────────────────────────────────────────────────────────
+
+  describe('generate() — newConversation', () => {
+    it('does NOT call page.goto() when newConversation is false (default)', async () => {
+      const { driver: d, mockSession } = makeTestDriver();
+      // Grab reference to the mock page
+      const mockPage = { goto: vi.fn().mockResolvedValue(null), waitForLoadState: vi.fn().mockResolvedValue(undefined) };
+      (mockSession.getPage as ReturnType<typeof vi.fn>).mockResolvedValue(mockPage);
+      await d.init();
+      // init() itself navigates via page.goto — reset AFTER init so we only
+      // assert that generate() (without newConversation) does NOT call it.
+      mockPage.goto.mockClear();
+      await d.generate({ prompt: 'hello' });
+      expect(mockPage.goto).not.toHaveBeenCalled();
+    });
+
+    it('calls page.goto() with providerUrl when newConversation is true', async () => {
+      const { driver: d, mockSession } = makeTestDriver();
+      const mockPage = {
+        goto: vi.fn().mockResolvedValue(null),
+        waitForLoadState: vi.fn().mockResolvedValue(undefined),
+      };
+      (mockSession.getPage as ReturnType<typeof vi.fn>).mockResolvedValue(mockPage);
+      await d.init();
+      await d.generate({ prompt: 'hello', newConversation: true });
+      expect(mockPage.goto).toHaveBeenCalledWith('https://gemini.google.com/app');
+    });
+
+    it('emits driver.generate.new_conversation debug event when newConversation is true', async () => {
+      const { driver: d, emitted, mockSession } = makeTestDriver();
+      const mockPage = {
+        goto: vi.fn().mockResolvedValue(null),
+        waitForLoadState: vi.fn().mockResolvedValue(undefined),
+      };
+      (mockSession.getPage as ReturnType<typeof vi.fn>).mockResolvedValue(mockPage);
+      await d.init();
+      await d.generate({ prompt: 'hello', newConversation: true });
+      const events = emitted.map((r) => r.event);
+      expect(events).toContain('driver.generate.new_conversation');
+    });
+
+    it('generate() succeeds even when waitForLoadState times out during newConversation reload', async () => {
+      // Verifies that the silent .catch(() => {}) on waitForLoadState is intentional:
+      // a networkidle timeout must NOT abort generate().
+      const { driver: d, mockSession } = makeTestDriver();
+      const mockPage = {
+        goto: vi.fn().mockResolvedValue(null),
+        // Simulate timeout rejection — this should be swallowed silently.
+        waitForLoadState: vi.fn().mockRejectedValue(new Error('Timeout exceeded')),
+      };
+      (mockSession.getPage as ReturnType<typeof vi.fn>).mockResolvedValue(mockPage);
+      await d.init();
+      const result = await d.generate({ prompt: 'hello', newConversation: true });
+      expect(result).toHaveProperty('text');
+      expect(result.outputKind).toBe('normal');
+    });
+  });
+
+  // ── health() — 5000ms timeout ────────────────────────────────────────────────
+
+  describe('health() — 5000ms timeout', () => {
+    it('resolves with a degraded report when internal checks hang beyond 5000ms', async () => {
+      vi.useFakeTimers();
+      const neverResolve = new Promise<never>(() => { /* intentionally hangs */ });
+
+      const { driver: d } = makeTestDriver({
+        session: {
+          isRunning: vi.fn().mockReturnValue(true),
+          // getPage hangs — simulates a frozen browser
+          getPage: vi.fn().mockReturnValue(neverResolve),
+          launch: vi.fn().mockResolvedValue(undefined),
+          close: vi.fn().mockResolvedValue(undefined),
+          id: 'test-session-id',
+        } as unknown as BrowserSession,
+      });
+
+      const healthPromise = d.health();
+      // Advance fake clock past the 5000ms timeout
+      await vi.runAllTimersAsync();
+      const h = await healthPromise;
+
+      expect(h.ok).toBe(false);
+      expect(h.browserRunning).toBe(false);
+
+      vi.useRealTimers();
+    });
+
+    it('health() resolves normally (no timeout) when checks complete quickly', async () => {
+      // Baseline: default mock resolves immediately — must still return correct health
+      const { driver: d } = makeTestDriver();
+      await d.init();
+      const h = await d.health();
+      expect(h.ok).toBe(true);
+      expect(h.initialized).toBe(true);
+    });
+  });
+
+  // ── concurrency guard ────────────────────────────────────────────────────────
+
+  describe('generate() — concurrency guard', () => {
+    it('throws ConcurrentGenerationError when called while already generating', async () => {
+      // Make capture take a long time so the second call races
+      let resolveCaptureFirst!: () => void;
+      const firstCaptureDone = new Promise<void>((resolve) => {
+        resolveCaptureFirst = resolve;
+      });
+      const slowCapture = {
+        capture: vi.fn().mockImplementation(async () => {
+          await firstCaptureDone; // blocks until we release it
+          return { text: 'done', startedAt: new Date(), completedAt: new Date() };
+        }),
+      } as unknown as OutputCapture;
+
+      const { driver: d } = makeTestDriver({ capture: slowCapture });
+      await d.init();
+
+      // Fire first generate — do not await
+      const first = d.generate({ prompt: 'first' });
+      // Second generate fires immediately — should be rejected
+      const secondErr = await d.generate({ prompt: 'second' }).catch((e: unknown) => e);
+      expect(secondErr).toBeInstanceOf(ConcurrentGenerationError);
+      expect((secondErr as ConcurrentGenerationError).code).toBe('CONCURRENT_GENERATION');
+      expect((secondErr as ConcurrentGenerationError).recoverable).toBe(false);
+
+      // Clean up: release first capture
+      resolveCaptureFirst();
+      await first;
+    });
+
+    it('allows a second generate() after the first completes', async () => {
+      const { driver: d } = makeTestDriver();
+      await d.init();
+      await d.generate({ prompt: 'first' });
+      await expect(d.generate({ prompt: 'second' })).resolves.toHaveProperty('text');
+    });
+
+    it('ConcurrentGenerationError is instanceof DriverError', async () => {
+      let resolveCap!: () => void;
+      const blockingCapture = {
+        capture: vi.fn().mockImplementation(async () => {
+          await new Promise<void>((r) => { resolveCap = r; });
+          return { text: 'ok', startedAt: new Date(), completedAt: new Date() };
+        }),
+      } as unknown as OutputCapture;
+
+      const { driver: d } = makeTestDriver({ capture: blockingCapture });
+      await d.init();
+      const first = d.generate({ prompt: 'a' });
+      const err = await d.generate({ prompt: 'b' }).catch((e: unknown) => e);
+
+      const { DriverError } = await import('../../src/errors/index');
+      expect(err).toBeInstanceOf(DriverError);
+
+      resolveCap();
+      await first;
     });
   });
 });

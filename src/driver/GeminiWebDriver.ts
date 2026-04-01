@@ -9,7 +9,8 @@ import type {
   RecoveryResult,
   WebLLMDriver,
 } from '../types/index';
-import { AuthenticationRequiredError, DriverError, DriverNotInitializedError, TimeoutError } from '../errors/index';
+import { AuthenticationRequiredError, ConcurrentGenerationError, DriverError, DriverNotInitializedError, TimeoutError } from '../errors/index';
+import { classifyGeminiOutput } from '../providers/gemini/outputClassifier';
 import { BrowserSession } from '../modules/BrowserSession';
 import { PageStateInspector } from '../modules/PageStateInspector';
 import { PromptSubmitter } from '../modules/PromptSubmitter';
@@ -38,6 +39,7 @@ export class GeminiWebDriver implements WebLLMDriver {
   private _initialized = false;
   private _mode: DriverMode = 'idle';
   private _lastError: string | undefined = undefined;
+  private _lastErrorCode: string | undefined = undefined;
 
   private readonly session: BrowserSession;
   private readonly inspector: PageStateInspector;
@@ -94,6 +96,7 @@ export class GeminiWebDriver implements WebLLMDriver {
       }
       this._initialized = true;
       this._lastError = undefined;
+      this._lastErrorCode = undefined;
       this.logger.emit('info', {
         event: 'driver.init.succeeded',
         sessionId: this.session.id,
@@ -117,6 +120,11 @@ export class GeminiWebDriver implements WebLLMDriver {
     if (!this._initialized) {
       throw new DriverNotInitializedError('Call init() before generate()');
     }
+    if (this._mode === 'generating') {
+      throw new ConcurrentGenerationError(
+        'A generation is already in progress. Await the current generate() call before issuing another.',
+      );
+    }
     const startMs = Date.now();
     const requestId =
       typeof input.metadata?.['requestId'] === 'string'
@@ -130,13 +138,26 @@ export class GeminiWebDriver implements WebLLMDriver {
     this._mode = 'generating';
     try {
       const page = await this.session.getPage();
+      // Navigate to a fresh conversation when requested.
+      if (input.newConversation === true) {
+        await page.goto(this.config.providerUrl);
+        // networkidle timeout is intentionally swallowed: the SPA may never reach
+        // networkidle in some network conditions, but the page is still usable for
+        // input submission.  A navigation failure would already have thrown inside
+        // page.goto(); reaching here means the page loaded, even if not fully quiet.
+        await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => {});
+        this.logger.emit('debug', { event: 'driver.generate.new_conversation', sessionId: this.session.id });
+      }
       await this.submitter.submit(page, input.prompt, input.systemPrompt);
       const result = await this.capture.capture(page, input.timeoutMs);
+      const { kind: outputKind, matchedPattern } = classifyGeminiOutput(result.text);
       this._mode = 'idle';
       this.logger.emit('info', {
         event: 'driver.generate.succeeded',
         sessionId: this.session.id,
         durationMs: Date.now() - startMs,
+        outputKind,
+        ...(matchedPattern !== undefined ? { matchedPattern } : {}),
         ...(requestId !== undefined ? { requestId } : {}),
       });
       return {
@@ -145,11 +166,13 @@ export class GeminiWebDriver implements WebLLMDriver {
         completedAt: result.completedAt,
         provider: 'gemini-web',
         sessionId: this.session.id,
+        outputKind,
         ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
       };
     } catch (e: unknown) {
       this._mode = 'degraded';
       this._lastError = e instanceof Error ? e.message : String(e);
+      this._lastErrorCode = e instanceof DriverError ? e.code : undefined;
       if (e instanceof TimeoutError) {
         this.logger.emit('warn', {
           event: 'driver.capture.timeout',
@@ -174,49 +197,60 @@ export class GeminiWebDriver implements WebLLMDriver {
   }
 
   async health(): Promise<DriverHealth> {
-    try {
-      const browserRunning = this.session.isRunning();
-      let pageReady = false;
-      let authenticated = false;
+    const degradedReport = (): DriverHealth => ({
+      ok: false,
+      initialized: this._initialized,
+      browserRunning: false,
+      pageReady: false,
+      authenticated: false,
+      providerReachable: false,
+      mode: this._mode,
+    });
 
-      if (browserRunning) {
-        const page = await this.session.getPage().catch(() => null);
-        if (page !== null) {
-          const [ready, auth] = await Promise.all([
-            this.inspector.isPageReady(page).catch(() => false),
-            this.inspector.isLoggedIn(page).catch(() => false),
-          ]);
-          pageReady = ready;
-          authenticated = auth;
+    const check = async (): Promise<DriverHealth> => {
+      try {
+        const browserRunning = this.session.isRunning();
+        let pageReady = false;
+        let authenticated = false;
+
+        if (browserRunning) {
+          const page = await this.session.getPage().catch(() => null);
+          if (page !== null) {
+            const [ready, auth] = await Promise.all([
+              this.inspector.isPageReady(page).catch(() => false),
+              this.inspector.isLoggedIn(page).catch(() => false),
+            ]);
+            pageReady = ready;
+            authenticated = auth;
+          }
         }
-      }
 
-      const ok = this._initialized && browserRunning && pageReady && authenticated;
-      const result: DriverHealth = {
-        ok,
-        initialized: this._initialized,
-        browserRunning,
-        pageReady,
-        authenticated,
-        providerReachable: browserRunning,
-        mode: this._mode,
-        ...(this._lastError !== undefined ? { lastError: this._lastError } : {}),
-      };
-      this.logger.emit('debug', { event: 'driver.health.checked', sessionId: this.session.id });
-      return result;
-    } catch {
-      // health() must never throw
-      this.logger.emit('debug', { event: 'driver.health.checked', sessionId: this.session.id });
-      return {
-        ok: false,
-        initialized: this._initialized,
-        browserRunning: false,
-        pageReady: false,
-        authenticated: false,
-        providerReachable: false,
-        mode: this._mode,
-      };
-    }
+        const ok = this._initialized && browserRunning && pageReady && authenticated;
+        const result: DriverHealth = {
+          ok,
+          initialized: this._initialized,
+          browserRunning,
+          pageReady,
+          authenticated,
+          providerReachable: browserRunning,
+          mode: this._mode,
+          ...(this._lastError !== undefined ? { lastError: this._lastError } : {}),
+          ...(this._lastErrorCode !== undefined ? { lastErrorCode: this._lastErrorCode } : {}),
+        };
+        this.logger.emit('debug', { event: 'driver.health.checked', sessionId: this.session.id });
+        return result;
+      } catch {
+        // health() must never throw
+        this.logger.emit('debug', { event: 'driver.health.checked', sessionId: this.session.id });
+        return degradedReport();
+      }
+    };
+
+    const timeout = new Promise<DriverHealth>((resolve) =>
+      setTimeout(() => resolve(degradedReport()), 5_000)
+    );
+
+    return Promise.race([check(), timeout]);
   }
 
   async recover(reason?: string): Promise<RecoveryResult> {
@@ -224,6 +258,8 @@ export class GeminiWebDriver implements WebLLMDriver {
     const h = await this.health();
     const result = await this.recovery.recover(h, reason);
     if (result.ok) {
+      this._lastError = undefined;
+      this._lastErrorCode = undefined;
       this.logger.emit('info', {
         event: 'driver.recover.succeeded',
         sessionId: this.session.id,

@@ -82,6 +82,16 @@ export class TimeoutError extends DriverError {
 }
 
 /**
+ * generate() was called while a generation was already in progress.
+ * The driver serialises output capture per session; callers must await the
+ * first generate() before issuing a second one.
+ */
+export class ConcurrentGenerationError extends DriverError {
+  readonly code = 'CONCURRENT_GENERATION' as const;
+  readonly recoverable = false as const;
+}
+
+/**
  * All recovery actions were attempted and none restored driver health.
  */
 export class RecoveryFailedError extends DriverError {

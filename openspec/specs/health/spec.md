@@ -1,9 +1,9 @@
 # Spec: Health
 
 **Spec ID:** specs/health  
-**Version:** 1.0.0  
+**Version:** 1.0.1  
 **Status:** ACTIVE  
-**Last Updated:** 2026-03-31
+**Last Updated:** 2026-04-01
 
 ---
 
@@ -24,9 +24,10 @@ Health checks are **non-destructive read-only operations**. They must never thro
 | `browserRunning` | boolean | Browser process is running and responsive |
 | `pageReady` | boolean | Provider page is open and input box is visible |
 | `authenticated` | boolean | Provider page reflects a valid logged-in session |
-| `providerReachable` | boolean | Provider domain is reachable (network-level) |
+| `providerReachable` | boolean | See Known Limitations §6 — currently proxied from browser/session state, not a real network probe |
 | `mode` | enum | Current driver operational state |
-| `lastError` | string? | Last known error message if any |
+| `lastError` | string? | Last known error message, if any. Cleared on successful `recover()`/`init()` |
+| `lastErrorCode` | string? | Machine-readable error code from the last typed `DriverError`, if any. Absent for generic errors or when no error has occurred. Cleared on successful `recover()`/`init()` |
 
 ### Mode States
 
@@ -73,3 +74,20 @@ if (!h.ok) {
 ```
 
 `health()` is safe to call at any time, including during `generating` or `recovering` mode.
+
+---
+
+## 6. Known Limitations
+
+### `providerReachable` is not a network-level probe
+
+The field name implies a connectivity check at the network layer (e.g. an HTTP HEAD request or DNS resolution against the provider domain). The current implementation does **not** perform such a probe.
+
+**Actual behaviour:** `providerReachable` is derived from browser/session liveness — specifically, it mirrors `browserRunning`. It will return `true` as long as the browser process is alive, even if the network is unreachable or the provider domain is down.
+
+**Consequence for consumers:**
+- Do **not** use `providerReachable` to diagnose real network outages.
+- Do **not** branch on `providerReachable` independently of `browserRunning`; the two values are currently identical.
+- Use `lastError` / `lastErrorCode` for post-failure diagnostics instead.
+
+This is a known gap. A future revision may replace the proxy value with an actual network probe, at which point this limitation will be removed.

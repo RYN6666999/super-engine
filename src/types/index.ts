@@ -24,11 +24,35 @@ export interface GenerateInput {
   /** Overrides DriverConfig.stabilityTimeoutMs for this call. */
   timeoutMs?: number;
   /**
+   * When true, the driver performs a **full page reload** to `DriverConfig.providerUrl`
+   * before submitting the prompt, guaranteeing that no prior conversation context
+   * is visible to the model.
+   *
+   * Implementation detail: uses `page.goto()` — not a UI "New chat" button click.
+   * This adds latency (one extra navigation round-trip, up to ~15 s for networkidle).
+   * A networkidle timeout does NOT cause generate() to fail; the page is still
+   * considered usable once goto() returns.
+   *
+   * When false or omitted, the current conversation thread is preserved.
+   * Default: false.
+   */
+  newConversation?: boolean;
+  /**
    * Opaque caller-defined data. The driver NEVER reads, parses, or acts on
    * this field. It is echoed unchanged into GenerateOutput.metadata.
    */
   metadata?: Readonly<Record<string, unknown>>;
 }
+
+/**
+ * Classification of a provider's output text.
+ * - `normal`         — substantive response text from the model.
+ * - `provider-error` — the provider returned a UI-level error message
+ *                      (e.g. "Something went wrong"). The driver detected this
+ *                      via known patterns; text is still available in `.text`.
+ * - `unknown`        — could not confidently classify the output.
+ */
+export type OutputKind = 'normal' | 'provider-error' | 'unknown';
 
 export interface GenerateOutput {
   text: string;
@@ -38,6 +62,11 @@ export interface GenerateOutput {
   provider: string;
   /** Browser session ID for this generation. */
   sessionId: string;
+  /**
+   * Classification of the output text.
+   * Callers SHOULD check this before treating `.text` as a real model response.
+   */
+  outputKind: OutputKind;
   /**
    * Echoed from GenerateInput.metadata unchanged.
    * Undefined if caller did not supply metadata.
@@ -70,6 +99,13 @@ export interface DriverHealth {
   mode: DriverMode;
   /** Last known error message, if any. Cleared on successful recover()/init(). */
   lastError?: string;
+  /**
+   * Machine-readable code of the last known error, if any.
+   * Present only when the error was a typed DriverError subclass.
+   * Absent (undefined) for generic/non-typed errors or when no error has occurred.
+   * Cleared on successful recover()/init().
+   */
+  lastErrorCode?: string;
 }
 
 // ─── Recovery ──────────────────────────────────────────────────────────────────
@@ -114,6 +150,8 @@ export interface ProviderSelectors {
   challengeIndicator?: string;
   /** CSS selector for any streaming cursor or spinner. */
   streamingIndicator?: string;
+  /** CSS selector for the "New chat" / compose button. Used when newConversation:true. */
+  newChatButton?: string;
 }
 
 // ─── Capture Config ────────────────────────────────────────────────────────────

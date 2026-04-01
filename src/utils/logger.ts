@@ -20,6 +20,13 @@ export interface DriverLogEvent {
   recoverable?: boolean;
   action?: string;
   selectorName?: string;
+  /** Classification of the generated output (present on driver.generate.succeeded). */
+  outputKind?: string;
+  /**
+   * Name of the matched provider-error pattern (present on driver.generate.succeeded
+   * only when outputKind === 'provider-error'). Internal diagnostic label.
+   */
+  matchedPattern?: string;
 }
 
 export interface LogRecord extends DriverLogEvent {

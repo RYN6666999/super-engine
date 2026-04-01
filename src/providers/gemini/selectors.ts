@@ -49,5 +49,9 @@ export const GeminiSelectors: ProviderSelectors = {
   // Pulsing cursor or spinner indicating active output streaming.
   // Fallbacks: aria-busy attribute, thinking/loading indicator classes.
   streamingIndicator: ':is(.loading-indicator, [aria-busy="true"], .thinking-indicator)',
+
+  // "New chat" / compose button — used when GenerateInput.newConversation:true.
+  // Fallbacks: pencil/compose icon variants, data-testid, aria-label across locales.
+  newChatButton: ':is(button[aria-label="New chat"], button[aria-label="新對話"], a[aria-label="New chat"], [data-testid="new-chat-button"], .new-chat-button)',
 } as const;
 

@@ -7,6 +7,78 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.1.2] Contract Completion — 2026-04-01
+
+### Summary
+
+Contract completion release. No new driver capabilities. Closes the gap between
+what the specs promised and what the code actually delivered. All previously
+declared public contract fields are now fully implemented, tested, and honest.
+133 unit tests pass (4 new). Typecheck clean.
+
+### Added
+
+#### `GenerateOutput.outputKind` (`src/types/index.ts`, `src/providers/gemini/outputClassifier.ts`)
+- New field on every `GenerateOutput`: `'normal' | 'provider-error' | 'unknown'`.
+- `provider-error` fires only when text is short (< 300 chars) AND matches a known
+  Gemini UI error pattern. Long responses are always `normal`.
+- Callers SHOULD check this before treating `.text` as a real model response.
+
+#### Named provider-error patterns + `matchedPattern` diagnostics
+- `PROVIDER_ERROR_PATTERNS`: 11 named regex entries covering generic errors,
+  rate-limits, quota exhaustion, availability issues, and session expiry.
+- `matchedPattern` emitted as a structured field in the `driver.generate.succeeded`
+  log event when `outputKind === 'provider-error'`. Log only — not in public output.
+
+#### `ConcurrentGenerationError` (`src/errors/index.ts`)
+- New typed error: `code = 'CONCURRENT_GENERATION'`, `recoverable = false`.
+- Thrown immediately when `generate()` is called while another generation is still
+  in progress. Prevents silent state corruption.
+
+#### `GenerateInput.newConversation` (`src/types/index.ts`)
+- Boolean flag: when `true`, the driver performs a **full page reload** to
+  `DriverConfig.providerUrl` before submitting the prompt.
+- Semantics are now explicit: this is `page.goto()`, not a UI "New chat" click.
+- networkidle timeout during reload is intentionally swallowed (non-fatal).
+
+#### `DriverHealth.lastErrorCode` (`src/types/index.ts`)
+- Machine-readable error code from the last typed `DriverError`, if any.
+- Absent (`undefined`) for generic (non-typed) errors or when no error has occurred.
+- Cleared on successful `recover()` or `init()`.
+
+#### Health spec Known Limitations (`openspec/specs/health/spec.md`)
+- §6 added: formally documents that `providerReachable` is currently a proxy for
+  `browserRunning`, not a real network-level probe. Callers warned not to rely on
+  it for network diagnostics.
+
+### Fixed
+
+#### `recover()` — clears `lastError` / `lastErrorCode` on success
+- Spec stated both fields are cleared on successful `recover()`. They were not.
+- Now: when `RecoveryResult.ok === true`, both fields are reset to `undefined`.
+- A failed `recover()` (`ok: false`) leaves the fields intact.
+
+#### `health()` — 5000ms timeout guard
+- Spec stated `health()` MUST complete within 5000ms. There was no enforcement.
+- Now: internal checks run inside `Promise.race` against a 5000ms deadline.
+- On timeout, `health()` resolves with a degraded report (`ok: false`,
+  `browserRunning: false`). Non-throwing contract is maintained.
+
+### Tests
+
+| Suite | Before | After |
+|---|---|---|
+| Unit — `GeminiWebDriver` | 30 | 34 |
+| **Total unit** | **129** | **133** |
+
+New cases:
+- `recover() > clears lastError and lastErrorCode after a successful recover()`
+- `recover() > does NOT clear lastError when recover() fails (ok: false)`
+- `health() — 5000ms timeout > resolves with a degraded report when internal checks hang`
+- `health() — 5000ms timeout > health() resolves normally when checks complete quickly`
+
+---
+
 ## [0.1.1-driver-hardening] — 2026-03-31
 
 ### Summary

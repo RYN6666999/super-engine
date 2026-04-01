@@ -41,8 +41,20 @@ interface WebLLMDriver {
 interface GenerateInput {
   prompt: string;
   systemPrompt?: string;
+  /** Overrides DriverConfig.stabilityTimeoutMs for this call. */
   timeoutMs?: number;
-  metadata?: Record<string, unknown>;
+  /**
+   * When true, performs a full page reload to providerUrl before submitting,
+   * guaranteeing no prior conversation context. Uses page.goto(), not a UI button.
+   * A networkidle timeout does not cause generate() to fail.
+   * Default: false.
+   */
+  newConversation?: boolean;
+  /**
+   * Opaque caller-defined data. The driver never reads or acts on this field;
+   * it is echoed unchanged into GenerateOutput.metadata.
+   */
+  metadata?: Readonly<Record<string, unknown>>;
 }
 ```
 
@@ -52,8 +64,20 @@ interface GenerateOutput {
   text: string;
   startedAt: Date;
   completedAt: Date;
+  /** Provider identifier, e.g. "gemini-web". */
   provider: string;
+  /** Browser session ID for this generation. */
   sessionId: string;
+  /**
+   * Classification of the output text.
+   * - `normal`         — substantive model response.
+   * - `provider-error` — UI-level error message detected by known patterns.
+   * - `unknown`        — could not confidently classify the output.
+   * Callers SHOULD check this before treating .text as a real model response.
+   */
+  outputKind: 'normal' | 'provider-error' | 'unknown';
+  /** Echoed from GenerateInput.metadata unchanged. Undefined if not supplied. */
+  metadata?: Readonly<Record<string, unknown>>;
 }
 ```
 
@@ -67,7 +91,14 @@ interface DriverHealth {
   authenticated: boolean;
   providerReachable: boolean;
   mode: 'idle' | 'generating' | 'recovering' | 'degraded' | 'shutdown';
+  /** Last error message, if any. Cleared on successful recover()/init(). */
   lastError?: string;
+  /**
+   * Machine-readable error code from the last typed DriverError, if any.
+   * Absent for generic errors or when no error has occurred.
+   * Cleared on successful recover()/init().
+   */
+  lastErrorCode?: string;
 }
 ```
 

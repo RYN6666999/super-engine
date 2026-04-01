@@ -11,6 +11,7 @@ export type {
   RecoveryAction,
   DriverConfig,
   ProviderSelectors,
+  OutputKind,
 } from './types/index';
 
 // Typed errors (values — not type-only)
@@ -23,6 +24,7 @@ export {
   OutputCaptureError,
   TimeoutError,
   RecoveryFailedError,
+  ConcurrentGenerationError,
 } from './errors/index';
 
 // Concrete driver
