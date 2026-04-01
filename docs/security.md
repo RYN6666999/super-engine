@@ -1,10 +1,10 @@
-# Security Spec — weblm-driver v0.1.1-driver-hardening
+# Security Spec — weblm-driver v0.1.3
 
 ## Threat Model Boundary
 
 The driver operates within a **single-host, trusted-caller** model. It is not a multi-tenant service. Security boundaries are:
 
-- **Input boundary**: caller-supplied `prompt`, `systemPrompt`, `metadata`
+- **Input boundary**: caller-supplied `prompt`, `metadata`
 - **Output boundary**: text extracted from the provider DOM
 - **Execution boundary**: Playwright-managed Chromium process on the local machine
 
@@ -25,12 +25,6 @@ The driver operates within a **single-host, trusted-caller** model. It is not a 
 - The driver **never reads, parses, or acts on** metadata fields
 - Metadata is echoed unchanged to `GenerateOutput.metadata`
 - No serialization to DOM or network occurs
-
-### `systemPrompt`
-
-- Passed to `PromptSubmitter.submit()` as an optional second argument
-- Currently **not injected** into the DOM in v0.1.0 (reserved for future implementation)
-- Callers should not rely on systemPrompt being honored in this version
 
 ---
 

@@ -674,4 +674,21 @@ describe('GeminiWebDriver', () => {
       await first;
     });
   });
+
+  // ── systemPrompt removal ─────────────────────────────────────────────────────
+
+  describe('generate() — systemPrompt removed from contract', () => {
+    it('submitter.submit is called with exactly (page, prompt) — no third argument', async () => {
+      const mockSubmit = vi.fn().mockResolvedValue(undefined);
+      const { driver: d } = makeTestDriver({
+        submitter: { submit: mockSubmit } as unknown as PromptSubmitter,
+      });
+      await d.init();
+      await d.generate({ prompt: 'hello world' });
+      // Before removal: called with (page, 'hello world', undefined) → length 3 → FAILS
+      // After removal:  called with (page, 'hello world')            → length 2 → PASSES
+      expect(mockSubmit.mock.calls[0]).toHaveLength(2);
+      expect(mockSubmit.mock.calls[0]?.[1]).toBe('hello world');
+    });
+  });
 });

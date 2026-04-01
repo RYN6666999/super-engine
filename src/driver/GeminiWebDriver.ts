@@ -148,7 +148,7 @@ export class GeminiWebDriver implements WebLLMDriver {
         await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => {});
         this.logger.emit('debug', { event: 'driver.generate.new_conversation', sessionId: this.session.id });
       }
-      await this.submitter.submit(page, input.prompt, input.systemPrompt);
+      await this.submitter.submit(page, input.prompt);
       const result = await this.capture.capture(page, input.timeoutMs);
       const { kind: outputKind, matchedPattern } = classifyGeminiOutput(result.text);
       this._mode = 'idle';

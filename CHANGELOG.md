@@ -7,6 +7,73 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.1.4] Public Surface Trim — 2026-04-01
+
+### Summary
+
+Minimal public API surface cleanup. Removes `ProviderSelectors` from the package
+export — it is an internal provider implementation detail and has no use for
+callers. No runtime changes. No test changes. 134 unit tests pass. Typecheck clean.
+
+### Removed
+
+#### `ProviderSelectors` from public exports (breaking for any caller that imported it)
+- Removed from `src/index.ts` export list.
+- Type still exists in `src/types/index.ts` for internal use.
+- **Rationale**: `ProviderSelectors` defines the CSS selector shape used internally
+  by `GeminiSelectors`. Exposing it as a public type implied callers could substitute
+  their own selectors, which is not a supported use case. Removing it prevents
+  accidental dependency on an internal implementation detail.
+- **Migration**: remove any `import type { ProviderSelectors }` from caller code
+  that imports from the package entry point. If you were using it as a type
+  annotation, it was not necessary for calling the driver.
+
+---
+
+## [0.1.3] Contract Cleanup — 2026-04-01
+
+### Summary
+
+Breaking contract cleanup. Removes `GenerateInput.systemPrompt` — a field that
+existed in the public API but was never implemented. The field has been silently
+ignored since v0.1.0. Removing it makes the contract honest and prevents callers
+from passing data that has no effect.
+
+No other contract changes. No new capabilities. 134 unit tests pass (1 new).
+Typecheck clean.
+
+### Removed
+
+#### `GenerateInput.systemPrompt` (breaking)
+- Removed from `GenerateInput` interface (`src/types/index.ts`).
+- Removed from `PromptSubmitter.submit()` signature (`src/modules/PromptSubmitter.ts`).
+- Removed from the `generate()` call path (`src/driver/GeminiWebDriver.ts`).
+- **Rationale**: Gemini Web UI has no system-level instruction injection surface.
+  The field was declared as optional but passed to `PromptSubmitter._systemPrompt`
+  which was never read. Any caller passing `systemPrompt` was silently getting
+  no effect. Removal is safer than keeping a silent no-op in the public contract.
+- **Migration**: remove any `systemPrompt` key from `GenerateInput` objects.
+  No runtime behavior changes — the field was never honoured.
+
+### Updated
+
+- `openspec/specs/driver/spec.md` — `GenerateInput` type block updated.
+- `docs/security.md` — input boundary and `systemPrompt` section removed.
+- `README.md` — `GenerateInput` type comment updated.
+- `scripts/validate.ts` — Step 4 pirate test removed; step numbering adjusted.
+
+### Tests
+
+| Suite | Before | After |
+|---|---|---|
+| Unit — `GeminiWebDriver` | 34 | 35 |
+| **Total unit** | **133** | **134** |
+
+New case:
+- `generate() — systemPrompt removed from contract > submitter.submit is called with exactly (page, prompt) — no third argument`
+
+---
+
 ## [0.1.2] Contract Completion — 2026-04-01
 
 ### Summary

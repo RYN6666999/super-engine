@@ -1,6 +1,6 @@
 {
   "name": "weblm-driver",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "description": "A minimal browser-in-the-loop Web LLM driver for low-cost inference.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -10,12 +10,15 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:smoke": "VITEST_SMOKE=1 vitest run --config vitest.smoke.config.ts",
+    "validate": "npx tsx scripts/validate.ts",
+    "validate:headed": "npx tsx scripts/validate.ts --headed",
     "lint": "eslint src tests --ext .ts"
   },
   "dependencies": {
     "playwright": "^1.43.0"
   },
   "devDependencies": {
+    "@types/node": "^25.5.0",
     "@typescript-eslint/eslint-plugin": "^7.8.0",
     "@typescript-eslint/parser": "^7.8.0",
     "eslint": "^8.57.0",

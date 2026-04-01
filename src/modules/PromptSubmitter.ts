@@ -14,7 +14,7 @@ export class PromptSubmitter {
    * @throws PageNotReadyError if input box is not found.
    * @throws PromptSubmitError if interaction with the input fails.
    */
-  async submit(page: Page, prompt: string, _systemPrompt?: string): Promise<void> {
+  async submit(page: Page, prompt: string): Promise<void> {
     try {
       const input = await page.$(this.selectors.inputBox);
       if (input == null) {

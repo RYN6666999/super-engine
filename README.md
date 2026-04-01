@@ -112,7 +112,7 @@ Tears down the browser session. **Idempotent** — safe to call multiple times o
 
 ```typescript
 // Core I/O
-GenerateInput      // { prompt, systemPrompt?, timeoutMs?, metadata? }
+GenerateInput      // { prompt, timeoutMs?, newConversation?, metadata? }
 GenerateOutput     // { text, startedAt, completedAt, provider, sessionId, metadata? }
 
 // Health

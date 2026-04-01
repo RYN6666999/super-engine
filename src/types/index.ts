@@ -20,7 +20,6 @@ export interface DriverConfig {
 
 export interface GenerateInput {
   prompt: string;
-  systemPrompt?: string;
   /** Overrides DriverConfig.stabilityTimeoutMs for this call. */
   timeoutMs?: number;
   /**

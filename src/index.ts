@@ -10,7 +10,6 @@ export type {
   RecoveryResult,
   RecoveryAction,
   DriverConfig,
-  ProviderSelectors,
   OutputKind,
 } from './types/index';
 
