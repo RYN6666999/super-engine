@@ -20,7 +20,16 @@ export class PromptSubmitter {
       if (input == null) {
         throw new PageNotReadyError('Prompt input box not found in the DOM');
       }
-      await page.fill(this.selectors.inputBox, prompt);
+      // rich-textarea wraps a contenteditable .ql-editor div.
+      // page.fill() only works on <input>/<textarea>/[contenteditable].
+      // Strategy: click the wrapper to focus, then use insertText to type into
+      // whatever inner contenteditable gains focus.
+      await page.click(this.selectors.inputBox);
+      // Clear any existing content first (Ctrl+A then Delete)
+      await page.keyboard.press('Control+a');
+      await page.keyboard.press('Delete');
+      // insertText fires an input event, which rich-textarea / Quill handles correctly
+      await page.keyboard.insertText(prompt);
       await page.keyboard.press('Enter');
     } catch (e: unknown) {
       if (e instanceof PageNotReadyError) throw e;

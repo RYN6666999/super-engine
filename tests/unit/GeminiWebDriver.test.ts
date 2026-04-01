@@ -43,6 +43,7 @@ function makeTestDriver(overrides: Partial<GeminiWebDriverDeps> = {}): {
     $: vi.fn().mockResolvedValue(null),
     $eval: vi.fn().mockResolvedValue(''),
     isVisible: vi.fn().mockResolvedValue(false),
+    waitForLoadState: vi.fn().mockResolvedValue(undefined),
     keyboard: { press: vi.fn().mockResolvedValue(undefined) },
     fill: vi.fn().mockResolvedValue(undefined),
   };

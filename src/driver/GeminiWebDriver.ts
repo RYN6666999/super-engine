@@ -82,6 +82,9 @@ export class GeminiWebDriver implements WebLLMDriver {
       await this.session.launch();
       const page = await this.session.getPage();
       await page.goto(this.config.providerUrl);
+      // Wait for SPA (Angular) to hydrate before reading page state.
+      // networkidle resolves once no network connections for 500ms.
+      await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => {});
       const mode = await this.inspector.detectMode(page);
       if (mode === 'unauthenticated' || mode === 'challenge') {
         this.logger.emit('warn', { event: 'driver.auth.required', sessionId: this.session.id });

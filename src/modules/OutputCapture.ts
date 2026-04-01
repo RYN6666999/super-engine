@@ -32,33 +32,35 @@ export class OutputCapture {
     const startedAt = new Date();
     const startMs = Date.now();
 
-    // Pre-flight: output container must exist
-    const container = await page.$(this.selectors.outputContainer);
-    if (container == null) {
-      throw new OutputCaptureError('Output container element not found in the DOM');
-    }
+    // Helper: read text from the LAST matching container (newest response).
+    // Returns '' if no elements found yet (new conversation, container not yet rendered).
+    const readLastText = async (): Promise<string> => {
+      try {
+        return await page.$$eval<string>(
+          this.selectors.outputContainer,
+          (els) => (els[els.length - 1]?.textContent ?? ''),
+        );
+      } catch {
+        return '';
+      }
+    };
 
     let prevText = '';
     let firstTokenMs: number | null = null;
+    // Track whether the stop button was ever seen — avoids false-positive "empty" errors
+    // in the race window right after submit() before Gemini starts streaming.
+    let stopWasSeen = false;
 
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      // Read current output text
-      let currentText: string;
-      try {
-        currentText = await page.$eval<string>(
-          this.selectors.outputContainer,
-          (el) => el.textContent ?? '',
-        );
-      } catch {
-        throw new OutputCaptureError('Failed to read text from output container');
-      }
-
+      const currentText = await readLastText();
       const stopVisible = await page.isVisible(this.selectors.stopButton);
+      if (stopVisible) stopWasSeen = true;
       const elapsed = Date.now() - startMs;
 
-      // Generation completed (stop gone) but text is empty/whitespace → capture error
-      if (!stopVisible && currentText.trim() === '') {
+      // Generation completed (stop gone) but text is empty/whitespace.
+      // Only throw if stop was previously seen (avoids race after submit()).
+      if (stopWasSeen && !stopVisible && currentText.trim() === '') {
         throw new OutputCaptureError('Output is empty after generation completed');
       }
 

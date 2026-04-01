@@ -136,6 +136,9 @@ describe.runIf(SMOKE_ENABLED && !!SMOKE_PROFILE)('Driver Smoke Tests', () => {
   // ── shutdown ─────────────────────────────────────────────────────────────────
 
   it('shutdown() completes without throwing', async () => {
+    // Shut down the shared driver first to release the profile lock,
+    // then verify a fresh driver can init + shutdown cleanly.
+    await driver.shutdown();
     const d3 = new GeminiWebDriver(config);
     await d3.init();
     await expect(d3.shutdown()).resolves.toBeUndefined();

@@ -23,10 +23,10 @@ const defaultConfig: CaptureConfig = {
 function makeStreamingPage(textSequence: Array<string | null>): Page {
   let call = 0;
   return {
-    $eval: vi.fn().mockImplementation(async () => {
+    $$eval: vi.fn().mockImplementation(async (_sel: string, fn: (els: {textContent: string|null}[]) => string) => {
       const val = textSequence[Math.min(call++, textSequence.length - 1)];
       if (val === null) throw new Error('element not found');
-      return val;
+      return fn([{ textContent: val }]);
     }),
     isVisible: vi.fn().mockImplementation(async () => {
       // stop button visible until last two text values
@@ -68,7 +68,7 @@ describe('OutputCapture', () => {
     it('does not return until stop-button indicator is absent (condition 2)', async () => {
       let stopButtonVisible = true;
       const page = {
-        $eval: vi.fn().mockResolvedValue('Final output'),
+        $$eval: vi.fn().mockImplementation(async (_sel: string, fn: (els: {textContent: string}[]) => string) => fn([{ textContent: 'Final output' }])),
         isVisible: vi.fn().mockImplementation(async () => {
           // stop button disappears after 2 calls
           const v = stopButtonVisible;
@@ -98,7 +98,7 @@ describe('OutputCapture', () => {
   describe('capture() — timeout', () => {
     it('raises TimeoutError when first token never appears within firstTokenTimeoutMs', async () => {
       const page = {
-        $eval: vi.fn().mockResolvedValue(''),  // always empty
+        $$eval: vi.fn().mockImplementation(async (_s: string, fn: (els: {textContent: string}[]) => string) => fn([{ textContent: '' }])),
         isVisible: vi.fn().mockResolvedValue(true),
         $: vi.fn().mockResolvedValue({}),
       } as unknown as Page;
@@ -108,7 +108,7 @@ describe('OutputCapture', () => {
 
     it('TimeoutError.code is "TIMEOUT"', async () => {
       const page = {
-        $eval: vi.fn().mockResolvedValue(''),
+        $$eval: vi.fn().mockImplementation(async (_s: string, fn: (els: {textContent: string}[]) => string) => fn([{ textContent: '' }])),
         isVisible: vi.fn().mockResolvedValue(true),
         $: vi.fn().mockResolvedValue({}),
       } as unknown as Page;
@@ -121,7 +121,7 @@ describe('OutputCapture', () => {
     it('raises TimeoutError when output starts but never stabilizes', async () => {
       let i = 0;
       const page = {
-        $eval: vi.fn().mockImplementation(async () => `partial text ${i++}`), // always changing
+        $$eval: vi.fn().mockImplementation(async (_s: string, fn: (els: {textContent: string}[]) => string) => fn([{ textContent: `partial text ${i++}` }])),
         isVisible: vi.fn().mockResolvedValue(true), // stop button never disappears
         $: vi.fn().mockResolvedValue({}),
       } as unknown as Page;
@@ -132,7 +132,7 @@ describe('OutputCapture', () => {
     it('TimeoutError.partial contains whatever text was last captured', async () => {
       let i = 0;
       const page = {
-        $eval: vi.fn().mockImplementation(async () => `text ${i++}`),
+        $$eval: vi.fn().mockImplementation(async (_s: string, fn: (els: {textContent: string}[]) => string) => fn([{ textContent: `text ${i++}` }])),
         isVisible: vi.fn().mockResolvedValue(true),
         $: vi.fn().mockResolvedValue({}),
       } as unknown as Page;
@@ -145,7 +145,7 @@ describe('OutputCapture', () => {
 
     it('TimeoutError.elapsedMs is a positive number', async () => {
       const page = {
-        $eval: vi.fn().mockResolvedValue(''),
+        $$eval: vi.fn().mockImplementation(async (_s: string, fn: (els: {textContent: string}[]) => string) => fn([{ textContent: '' }])),
         isVisible: vi.fn().mockResolvedValue(true),
         $: vi.fn().mockResolvedValue({}),
       } as unknown as Page;
@@ -158,7 +158,7 @@ describe('OutputCapture', () => {
       const start = Date.now();
       let i = 0;
       const page = {
-        $eval: vi.fn().mockImplementation(async () => `text ${i++}`),
+        $$eval: vi.fn().mockImplementation(async (_s: string, fn: (els: {textContent: string}[]) => string) => fn([{ textContent: `text ${i++}` }])),
         isVisible: vi.fn().mockResolvedValue(true),
         $: vi.fn().mockResolvedValue({}),
       } as unknown as Page;
@@ -173,19 +173,26 @@ describe('OutputCapture', () => {
 
   describe('capture() — error conditions', () => {
     it('raises OutputCaptureError when output container element is not found', async () => {
+      // After stop button is seen (stopWasSeen=true) and disappears, if text is empty → error
+      let stopVisible = true;
       const page = {
-        $eval: vi.fn().mockRejectedValue(new Error('element not found')),
-        isVisible: vi.fn().mockResolvedValue(false),
-        $: vi.fn().mockResolvedValue(null), // no output element
+        $$eval: vi.fn().mockImplementation(async (_s: string, fn: (els: {textContent: string}[]) => string) => fn([{ textContent: '' }])),
+        isVisible: vi.fn().mockImplementation(async () => {
+          const v = stopVisible;
+          stopVisible = false; // disappears after first call
+          return v;
+        }),
+        $: vi.fn().mockResolvedValue(null),
       } as unknown as Page;
 
       await expect(capture.capture(page)).rejects.toThrow(OutputCaptureError);
     });
 
     it('raises OutputCaptureError when captured text is an empty string', async () => {
+      let stopCalls = 0;
       const page = {
-        $eval: vi.fn().mockResolvedValue(''), // always empty — stability condition never satisfied
-        isVisible: vi.fn().mockResolvedValue(false), // stop button already gone
+        $$eval: vi.fn().mockImplementation(async (_s: string, fn: (els: {textContent: string}[]) => string) => fn([{ textContent: '' }])),
+        isVisible: vi.fn().mockImplementation(async () => stopCalls++ === 0), // visible once, then gone
         $: vi.fn().mockResolvedValue({}),
       } as unknown as Page;
 
@@ -193,9 +200,10 @@ describe('OutputCapture', () => {
     });
 
     it('raises OutputCaptureError when captured text is whitespace only', async () => {
+      let stopCalls = 0;
       const page = {
-        $eval: vi.fn().mockResolvedValue('   \n\t   '),
-        isVisible: vi.fn().mockResolvedValue(false),
+        $$eval: vi.fn().mockImplementation(async (_s: string, fn: (els: {textContent: string}[]) => string) => fn([{ textContent: '   \n\t   ' }])),
+        isVisible: vi.fn().mockImplementation(async () => stopCalls++ === 0), // visible once, then gone
         $: vi.fn().mockResolvedValue({}),
       } as unknown as Page;
 
@@ -214,7 +222,7 @@ describe('OutputCapture', () => {
       const customCapture = new OutputCapture(customSelectors, defaultConfig);
 
       const page = {
-        $eval: vi.fn().mockResolvedValue('response text'),
+        $$eval: vi.fn().mockImplementation(async (_s: string, fn: (els: {textContent: string}[]) => string) => fn([{ textContent: 'response text' }])),
         isVisible: vi.fn().mockResolvedValue(false),
         $: vi.fn().mockResolvedValue({}),
       } as unknown as Page;
@@ -222,7 +230,7 @@ describe('OutputCapture', () => {
       await customCapture.capture(page).catch(() => { /* stub throws */ });
 
       // The mock should have been called with the custom selector
-      const usedSelectors = ((page.$eval as ReturnType<typeof vi.fn>).mock.calls as Array<[string, ...unknown[]]>).map(([sel]) => sel);
+      const usedSelectors = ((page.$$eval as ReturnType<typeof vi.fn>).mock.calls as Array<[string, ...unknown[]]>).map(([sel]) => sel);
       expect(usedSelectors.some(s => s.includes('data-custom'))).toBe(true);
     });
 
@@ -234,7 +242,7 @@ describe('OutputCapture', () => {
       const customCapture = new OutputCapture(customSelectors, defaultConfig);
 
       const page = {
-        $eval: vi.fn().mockResolvedValue('text'),
+        $$eval: vi.fn().mockImplementation(async (_s: string, fn: (els: {textContent: string}[]) => string) => fn([{ textContent: 'text' }])),
         isVisible: vi.fn().mockResolvedValue(false),
         $: vi.fn().mockResolvedValue({}),
       } as unknown as Page;

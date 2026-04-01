@@ -29,16 +29,18 @@ export const GeminiSelectors: ProviderSelectors = {
   submitButton: ':is(button[aria-label="Send message"], button[aria-label="Submit"], button[data-testid="send-button"])',
 
   // Container element holding the model's response text.
-  // Fallbacks: data-testid variant, generic response content container.
-  outputContainer: ':is(.model-response-text, [data-testid="response-text"], .response-content)',
+  // [class*="model-response"] targets model-response-text and siblings.
+  // Fallbacks: markdown panel, generic response content container.
+  outputContainer: ':is([class*="model-response"], .markdown-main-panel, .response-content)',
 
   // Button visible while the model is still generating output.
-  // Fallbacks: aria-label variations, data-testid variant.
-  stopButton: ':is(button[aria-label="Stop generating"], button[aria-label="Stop response"], button[data-testid="stop-button"])',
+  // 停止回覆 = Chinese locale aria-label observed on gemini.google.com.
+  // Fallbacks: English labels, data-testid variant.
+  stopButton: ':is(button[aria-label="停止回覆"], button[aria-label="Stop generating"], button[aria-label="Stop response"], button[data-testid="stop-button"])',
 
   // Element present only when the user has an authenticated session.
   // Fallbacks: profile photo alt text, user avatar container.
-  loginIndicator: ':is([data-test-id="user-menu"], img[alt*="profile photo"], .user-avatar)',
+  loginIndicator: ':is([data-test-id="user-menu"], img[alt*="profile photo"], img[alt*="個人資料相片"], .user-avatar, .user-icon)',
 
   // Shown during login-wall, CAPTCHA, or identity challenge flows.
   // Fallbacks: reCAPTCHA attribute, generic challenge container.
