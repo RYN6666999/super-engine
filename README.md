@@ -162,6 +162,63 @@ All extend `DriverError` which carries `code`, `recoverable`, `timestamp`, and o
 
 ---
 
+## Minimal Integration Wrapper
+
+Besides the low-level driver core, this repo provides a minimal integration wrapper for external projects:
+
+- `integrations/ask.ts` — implementation
+- `integrations/index.ts` — entry point
+
+### Usage
+
+```ts
+import { ask } from '../super-engine/integrations';
+
+const reply = await ask('Reply only with OK');
+console.log(reply);
+```
+
+### AskOptions
+
+```ts
+type AskOptions = {
+  newConversation?: boolean;  // full page reload before prompt. Default: false
+  headed?: boolean;           // show browser window. Default: false
+  timeoutMs?: number;         // ms to wait for response. Default: 30_000
+};
+```
+
+### Behavior
+
+`ask(prompt, opts?)` will:
+1. read config from environment variables
+2. create and initialize a `GeminiWebDriver`
+3. run `generate()`
+4. reject non-`normal` `outputKind` as a thrown error
+5. if `generate()` throws a recoverable `DriverError`, attempt `recover()` once and retry
+6. always call `shutdown()` in `finally`
+
+### Required environment variable
+
+```bash
+export SMOKE_PROFILE_DIR="/Users/<you>/Library/Application Support/Google/Chrome/Profile 1"
+```
+
+Optional — needed when a local Chrome profile is incompatible with Playwright's bundled Chromium:
+
+```bash
+export CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+```
+
+### Caller guidance
+
+- `newConversation: true` adds roughly **15–20 s** of overhead (hard page reload). Do not use it by default.
+- Typical generation latency observed in live validation: **~5–22 seconds**.
+- `recover().ok === false` on a healthy driver is expected behavior, not a bug.
+- Schema validation, output repair, memory, queues, and business logic belong in the **calling project**, not here.
+
+---
+
 ## Testing
 
 ```bash
@@ -199,13 +256,18 @@ src/
     RecoveryManager.ts          ← decision-matrix recovery, never throws
   providers/
     gemini/selectors.ts         ← versioned CSS selectors, never hardcoded
+integrations/
+  index.ts                      ← re-exports ask() and AskOptions
+  ask.ts                        ← caller-friendly wrapper (env config, lifecycle, recover-once)
+examples/
+  ask.ts                        ← canonical low-level caller example
 ```
 
 ---
 
 ## Release
 
-Current: `v0.1.0-driver-core`
+Current: **v0.1.5** — live-validated, contract-clean, minimal integration wrapper included.
 
 See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
