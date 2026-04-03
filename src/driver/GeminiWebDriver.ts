@@ -53,6 +53,8 @@ export class GeminiWebDriver implements WebLLMDriver {
       providerUrl: config.providerUrl,
       ...(config.profileDir !== undefined ? { profileDir: config.profileDir } : {}),
       ...(config.headless !== undefined ? { headless: config.headless } : {}),
+      ...(config.executablePath !== undefined ? { executablePath: config.executablePath } : {}),
+      ...(config.args !== undefined ? { args: config.args } : {}),
     };
     const captureConfig: CaptureConfig = {
       firstTokenTimeoutMs: config.firstTokenTimeoutMs ?? 30_000,
@@ -146,6 +148,10 @@ export class GeminiWebDriver implements WebLLMDriver {
         // input submission.  A navigation failure would already have thrown inside
         // page.goto(); reaching here means the page loaded, even if not fully quiet.
         await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => {});
+        // Wait for the input box to be mounted before submitting.  This prevents a
+        // race where the SPA is still hydrating (stop button selector briefly matches
+        // during Angular component init) when capture starts polling.
+        await page.waitForSelector(GeminiSelectors.inputBox, { timeout: 10_000 }).catch(() => {});
         this.logger.emit('debug', { event: 'driver.generate.new_conversation', sessionId: this.session.id });
       }
       await this.submitter.submit(page, input.prompt);

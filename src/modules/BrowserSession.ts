@@ -24,17 +24,27 @@ export class BrowserSession {
   }
 
   async launch(): Promise<void> {
+    const executablePath = this.config.executablePath;
+    const args = this.config.args;
     if (this.config.profileDir) {
       // Persistent context — browser profile keeps session cookies/localStorage
       this._context = await chromium.launchPersistentContext(
         this.config.profileDir,
-        { headless: this.config.headless ?? true },
+        {
+          headless: this.config.headless ?? true,
+          ...(executablePath !== undefined ? { executablePath } : {}),
+          ...(args !== undefined ? { args } : {}),
+        },
       );
       const pages = this._context.pages();
       this._page = pages[0] ?? await this._context.newPage();
     } else {
       // Ephemeral context — used for smoke tests without a profile
-      this._browser = await chromium.launch({ headless: this.config.headless ?? true });
+      this._browser = await chromium.launch({
+        headless: this.config.headless ?? true,
+        ...(executablePath !== undefined ? { executablePath } : {}),
+        ...(args !== undefined ? { args } : {}),
+      });
       this._context = await this._browser.newContext();
       this._page = await this._context.newPage();
     }

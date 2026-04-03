@@ -173,15 +173,14 @@ describe('OutputCapture', () => {
 
   describe('capture() — error conditions', () => {
     it('raises OutputCaptureError when output container element is not found', async () => {
-      // After stop button is seen (stopWasSeen=true) and disappears, if text is empty → error
-      let stopVisible = true;
+      // Simulates: stop appears (generation starts), a token briefly appears, then text
+      // becomes empty when stop disappears — genuine empty-output error condition.
+      let stopCalls = 0;
+      let textCalls = 0;
       const page = {
-        $$eval: vi.fn().mockImplementation(async (_s: string, fn: (els: {textContent: string}[]) => string) => fn([{ textContent: '' }])),
-        isVisible: vi.fn().mockImplementation(async () => {
-          const v = stopVisible;
-          stopVisible = false; // disappears after first call
-          return v;
-        }),
+        $$eval: vi.fn().mockImplementation(async (_s: string, fn: (els: {textContent: string}[]) => string) =>
+          fn([{ textContent: ++textCalls === 1 ? 'token' : '' }])),
+        isVisible: vi.fn().mockImplementation(async () => stopCalls++ < 2),
         $: vi.fn().mockResolvedValue(null),
       } as unknown as Page;
 
@@ -189,10 +188,14 @@ describe('OutputCapture', () => {
     });
 
     it('raises OutputCaptureError when captured text is an empty string', async () => {
+      // Simulates: stop appears (generation starts), a token briefly appears, then text
+      // collapses to empty string — provider returned no useful content.
       let stopCalls = 0;
+      let textCalls = 0;
       const page = {
-        $$eval: vi.fn().mockImplementation(async (_s: string, fn: (els: {textContent: string}[]) => string) => fn([{ textContent: '' }])),
-        isVisible: vi.fn().mockImplementation(async () => stopCalls++ === 0), // visible once, then gone
+        $$eval: vi.fn().mockImplementation(async (_s: string, fn: (els: {textContent: string}[]) => string) =>
+          fn([{ textContent: ++textCalls === 1 ? 'token' : '' }])),
+        isVisible: vi.fn().mockImplementation(async () => stopCalls++ < 2),
         $: vi.fn().mockResolvedValue({}),
       } as unknown as Page;
 

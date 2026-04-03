@@ -7,6 +7,75 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.1.5] Live Validation & Compatibility — 2026-04-03
+
+### Summary
+
+First fully verified live release. All public contract fields confirmed against a
+real Gemini session. Fixes a `newConversation` false-positive crash in
+`OutputCapture`. Adds `executablePath` and `args` passthrough so local Chrome
+profiles can be used without Playwright's bundled binary. Adds `examples/ask.ts`
+as the canonical correct caller pattern.
+
+134 unit tests pass. Typecheck clean.
+
+### Fixed
+
+#### `OutputCapture` — false-positive `OutputCaptureError` on `newConversation`
+- **Root cause**: When `newConversation: true` triggered `page.goto()`, Gemini's
+  Angular SPA briefly showed the stop button during hydration. `OutputCapture`
+  interpreted this as "generation started and completed with empty output" and
+  threw immediately before the prompt was even submitted.
+- **Fix 1**: The empty-output guard now requires `firstTokenMs !== null` — actual
+  output must have appeared and then vanished before throwing. Pure transition
+  flicker (stop seen, no text ever) no longer triggers the error.
+- **Fix 2**: `GeminiWebDriver.generate()` now calls
+  `page.waitForSelector(inputBox)` after `page.goto()` to let the SPA fully mount
+  before submitting, eliminating the race window entirely.
+- **Fix 3**: `firstTokenMs` tracking uses `text !== ''` instead of
+  `text.trim() !== ''` so whitespace content also counts as a token appearing.
+
+### Added
+
+#### `DriverConfig.executablePath?: string` and `DriverConfig.args?: string[]`
+- Infrastructure passthrough to Playwright's `executablePath` and `args` launch
+  options. Propagated through `BrowserSessionConfig` → `BrowserSession.launch()`.
+- **Why**: Playwright's bundled Chromium crashes (SIGTRAP) when given a Chrome
+  profile whose format was written by a newer Chrome binary. Setting
+  `executablePath` to the real Chrome binary resolves the incompatibility.
+- `args` allows suppressing Chrome dialogs (e.g. "Restore pages?") that appear
+  when re-opening an existing profile. Recommended value:
+  `['--no-first-run', '--disable-session-crashed-bubble']`
+- No changes to public driver methods or generate/health/recover contracts.
+
+#### `examples/ask.ts` — canonical caller pattern
+- Shows correct driver lifecycle: `init()` once → `generate()` → `shutdown()` in
+  `finally`.
+- Gates on `outputKind`: non-`normal` output is not treated as a valid model
+  answer.
+- Calls `recover()` only when `generate()` throws with `recoverable === true`.
+- `newConversation` controlled via explicit `--new-conversation` CLI flag.
+- Run via `npm run ask -- "Your prompt" [--new-conversation] [--headed]`.
+
+#### `scripts/validate.ts` — baseline filled from live run
+- VALIDATION SUMMARY now contains real observed values from 2026-04-03.
+
+### Live Validation Baseline (2026-04-03)
+
+| Field | Observed |
+|---|---|
+| `outputKind` (clean run) | `normal` |
+| plain `generate()` duration | 5–22 s (network variance) |
+| `newConversation: true` total cost | ~19 s |
+| `health()` fields on clean run | all `true`, `lastError/Code` = none |
+| `recover().action` | `refresh-page` |
+| `recover().ok` on healthy driver | `false` (expected) |
+| `lastError/Code` after `recover()` | cleared ✓ |
+| post-recover `generate()` | `normal` ✓ |
+| `shutdown()` | ~900 ms |
+
+---
+
 ## [0.1.4] Public Surface Trim — 2026-04-01
 
 ### Summary

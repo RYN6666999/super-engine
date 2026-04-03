@@ -14,6 +14,25 @@ export interface DriverConfig {
   /** Polling interval for stability check (ms). Default: 1500 */
   stabilityIntervalMs?: number;
   logLevel?: 'silent' | 'error' | 'warn' | 'info' | 'debug';
+  /**
+   * Path to the Chrome/Chromium executable to use instead of Playwright's
+   * bundled Chromium. Required when using an existing Chrome profile whose
+   * format version is incompatible with Playwright's bundled binary.
+   *
+   * Example: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+   */
+  executablePath?: string;
+  /**
+   * Extra command-line arguments forwarded to the browser process.
+   * Useful for suppressing Chrome dialogs when using a local profile.
+   *
+   * Recommended when using an existing Chrome profile:
+   *   ['--no-first-run', '--disable-session-crashed-bubble']
+   *
+   * '--no-first-run'                 suppress first-run experience dialogs
+   * '--disable-session-crashed-bubble' suppress "didn't shut down correctly" infobar
+   */
+  args?: string[];
 }
 
 // ─── Generate ──────────────────────────────────────────────────────────────────
@@ -180,6 +199,8 @@ export interface BrowserSessionConfig {
   providerUrl: string;
   profileDir?: string;
   headless?: boolean;
+  executablePath?: string;
+  args?: string[];
 }
 
 // ─── Page Mode ─────────────────────────────────────────────────────────────────

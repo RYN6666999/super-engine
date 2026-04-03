@@ -59,13 +59,16 @@ export class OutputCapture {
       const elapsed = Date.now() - startMs;
 
       // Generation completed (stop gone) but text is empty/whitespace.
-      // Only throw if stop was previously seen (avoids race after submit()).
-      if (stopWasSeen && !stopVisible && currentText.trim() === '') {
+      // Requires stopWasSeen (avoids race after submit()) AND firstTokenMs set (avoids false
+      // positives from SPA page-transition flicker that makes stop button briefly appear
+      // before actual generation begins — observed with newConversation:true).
+      if (stopWasSeen && firstTokenMs !== null && !stopVisible && currentText.trim() === '') {
         throw new OutputCaptureError('Output is empty after generation completed');
       }
 
-      // Track first token appearance
-      if (firstTokenMs === null && currentText.trim() !== '') {
+      // Track first token appearance (raw non-empty, not trimmed — whitespace content also
+      // counts as a token appearing, distinguishing it from a genuinely empty response).
+      if (firstTokenMs === null && currentText !== '') {
         firstTokenMs = elapsed;
       }
 

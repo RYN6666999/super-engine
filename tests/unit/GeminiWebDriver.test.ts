@@ -538,6 +538,7 @@ describe('GeminiWebDriver', () => {
       const mockPage = {
         goto: vi.fn().mockResolvedValue(null),
         waitForLoadState: vi.fn().mockResolvedValue(undefined),
+        waitForSelector: vi.fn().mockResolvedValue(undefined),
       };
       (mockSession.getPage as ReturnType<typeof vi.fn>).mockResolvedValue(mockPage);
       await d.init();
@@ -550,6 +551,7 @@ describe('GeminiWebDriver', () => {
       const mockPage = {
         goto: vi.fn().mockResolvedValue(null),
         waitForLoadState: vi.fn().mockResolvedValue(undefined),
+        waitForSelector: vi.fn().mockResolvedValue(undefined),
       };
       (mockSession.getPage as ReturnType<typeof vi.fn>).mockResolvedValue(mockPage);
       await d.init();
@@ -566,6 +568,7 @@ describe('GeminiWebDriver', () => {
         goto: vi.fn().mockResolvedValue(null),
         // Simulate timeout rejection — this should be swallowed silently.
         waitForLoadState: vi.fn().mockRejectedValue(new Error('Timeout exceeded')),
+        waitForSelector: vi.fn().mockResolvedValue(undefined),
       };
       (mockSession.getPage as ReturnType<typeof vi.fn>).mockResolvedValue(mockPage);
       await d.init();
